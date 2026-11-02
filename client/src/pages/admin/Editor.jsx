@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, X, ImagePlus } from 'lucide-react';
 import { api } from '../../lib/api';
 import ApiState from '../../components/ApiState';
+
 const empty = {
   title: '',
   type: 'BOOK',
@@ -24,40 +25,78 @@ const empty = {
   seasons: '',
   recommended: false,
 };
+
 const typeFields = {
-  BOOK: [
-    ['author', 'Autor', 'text'],
-    ['pages', 'Páginas', 'number'],
-  ],
-  MOVIE: [
-    ['director', 'Director', 'text'],
-    ['duration', 'Duración (minutos)', 'number'],
-  ],
-  GAME: [
-    ['developer', 'Desarrollador', 'text'],
-    ['platform', 'Plataforma', 'text'],
-  ],
-  SERIES: [
-    ['creator', 'Creador', 'text'],
-    ['seasons', 'Temporadas', 'number'],
-  ],
+  BOOK: [['author', 'Autor', 'text'], ['pages', 'Páginas', 'number']],
+  MOVIE: [['director', 'Director', 'text'], ['duration', 'Duración (minutos)', 'number']],
+  GAME: [['developer', 'Desarrollador', 'text'], ['platform', 'Plataforma', 'text']],
+  SERIES: [['creator', 'Creador', 'text'], ['seasons', 'Temporadas', 'number']],
 };
+
 export default function Editor({ onChanged }) {
-  const { id } = useParams(),
-    navigate = useNavigate();
-  const [form, setForm] = useState(empty),
-    [image, setImage] = useState(null),
-    [preview, setPreview] = useState('');
-  const [loading, setLoading] = useState(Boolean(id)),
-    [loadError, setLoadError] = useState('');
-  const [error, setError] = useState(''),
-    [fields, setFields] = useState({}),
-    [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false),
-    [dirty, setDirty] = useState(false),
-    [revision, setRevision] = useState(0);
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [form, setForm] = useState(empty);
+  const [image, setImage] = useState(null);
+  const [preview, setPreview] = useState('');
+  const [loading, setLoading] = useState(Boolean(id));
+  const [loadError, setLoadError] = useState('');
+  const [error, setError] = useState('');
+  const [fields, setFields] = useState({});
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [revision, setRevision] = useState(0);
+  
   const feedbackRef = useRef(null);
   const imageInputRef = useRef(null);
+
+  const autocompletarPelicula = async () => {
+    if (!form.title) {
+      setError('Ingresá un título para buscar.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      // Reemplazar con la API Key obtenida en TMDb
+      const API_KEY = 'a48c5fbb48623ed36adb2966a2b9bace'; 
+      
+      const searchRes = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${API_KEY}&query=${form.title}&language=es-ES`);
+      const searchData = await searchRes.json();
+
+      if (searchData.results && searchData.results.length > 0) {
+        const movie = searchData.results[0];
+        const detailRes = await fetch(`https://api.themoviedb.org/3/movie/${movie.id}?api_key=${API_KEY}&language=es-ES`);
+        const detailData = await detailRes.json();
+
+        if (movie.poster_path) {
+          const imgRes = await fetch(`https://image.tmdb.org/t/p/w500${movie.poster_path}`);
+          const blob = await imgRes.blob();
+          const imageFile = new File([blob], 'poster.jpg', { type: 'image/jpeg' });
+          setImage(imageFile);
+        }
+
+        setForm(prev => ({
+          ...prev,
+          synopsis: movie.overview || prev.synopsis,
+          duration: detailData.runtime ? String(detailData.runtime) : prev.duration,
+          year: movie.release_date ? parseInt(movie.release_date.split('-')[0]) : prev.year
+        }));
+        
+        setDirty(true);
+        setMessage('Película autocompletada con éxito.');
+      } else {
+        setError('No se encontró la película en TMDb.');
+      }
+    } catch (err) {
+      setError('Error al conectar con TMDb.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   useEffect(() => {
     const controller = new AbortController();
     setImage(null);
@@ -83,6 +122,7 @@ export default function Editor({ onChanged }) {
       });
     return () => controller.abort();
   }, [id, revision]);
+
   useEffect(() => {
     if (!image) {
       setPreview('');
@@ -92,6 +132,7 @@ export default function Editor({ onChanged }) {
     setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [image]);
+
   useEffect(() => {
     const warn = (e) => {
       if (dirty) {
@@ -102,19 +143,18 @@ export default function Editor({ onChanged }) {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
+
   const update = (key, value) => {
     setForm((p) => ({ ...p, [key]: value }));
     setDirty(true);
     setMessage('');
   };
+
   const selectImage = (e) => {
     const file = e.target.files?.[0];
     setError('');
     if (!file) return;
-    if (
-      !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
-      file.size > 5 * 1024 * 1024
-    ) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
       setError('Seleccioná una imagen JPG, PNG o WebP de hasta 5 MB.');
       setImage(null);
       e.target.value = '';
@@ -124,6 +164,7 @@ export default function Editor({ onChanged }) {
     setDirty(true);
     setMessage('');
   };
+
   const submit = async (event) => {
     event.preventDefault();
     setBusy(true);
@@ -145,11 +186,7 @@ export default function Editor({ onChanged }) {
       setForm({ ...empty, ...saved });
       setImage(null);
       if (imageInputRef.current) imageInputRef.current.value = '';
-      setMessage(
-        saved.status === 'PUBLISHED'
-          ? 'Reseña guardada y publicada correctamente.'
-          : 'Borrador guardado correctamente.',
-      );
+      setMessage(saved.status === 'PUBLISHED' ? 'Reseña guardada y publicada.' : 'Borrador guardado.');
       if (!id) navigate(`/admin/editar/${saved.id}`, { replace: true });
     } catch (err) {
       setError(err.message);
@@ -158,9 +195,11 @@ export default function Editor({ onChanged }) {
       setBusy(false);
     }
   };
+
   useEffect(() => {
     if (error || message) feedbackRef.current?.focus();
   }, [error, message]);
+
   const field = (key, label, type = 'text', props = {}) => (
     <label className="setting" key={key} htmlFor={`field-${key}`}>
       {label}
@@ -175,17 +214,12 @@ export default function Editor({ onChanged }) {
         aria-describedby={fields[key] ? `error-${key}` : undefined}
         {...props}
       />
-      {fields[key] && (
-        <span id={`error-${key}`} className="field-error">
-          {fields[key].join(' ')}
-        </span>
-      )}
+      {fields[key] && <span id={`error-${key}`} className="field-error">{fields[key].join(' ')}</span>}
     </label>
   );
-  if (loading || loadError)
-    return (
-      <ApiState loading={loading} error={loadError} reload={() => setRevision((v) => v + 1)} />
-    );
+
+  if (loading || loadError) return <ApiState loading={loading} error={loadError} reload={() => setRevision((v) => v + 1)} />;
+
   return (
     <section className="page-section editor-page">
       <Link className="back-link" to="/admin">
@@ -194,21 +228,13 @@ export default function Editor({ onChanged }) {
       </Link>
       <span className="eyebrow">ESPACIO EDITORIAL</span>
       <h1>{id ? 'Cuidá cada detalle.' : 'Una nueva historia.'}</h1>
-      <p>
-        Reseñas claras, en pequeñas secciones. Guardá un borrador o compartilo con tus lectores.
-      </p>
+      <p>Reseñas claras, en pequeñas secciones. Guardá un borrador o compartilo con tus lectores.</p>
+      
       <div ref={feedbackRef} tabIndex={-1} className="editor-feedback">
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p className="feedback" role="status">
-            {message}
-          </p>
-        )}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        {message && <p className="feedback" role="status">{message}</p>}
       </div>
+
       <form onSubmit={submit} aria-busy={busy}>
         <fieldset disabled={busy} className="editor-fieldset">
           <div className="editor-layout">
@@ -216,14 +242,23 @@ export default function Editor({ onChanged }) {
               <section className="editor-section">
                 <h2>01 · La historia</h2>
                 {field('title', 'Título', 'text', { maxLength: 180 })}
+                
+                {form.type === 'MOVIE' && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={autocompletarPelicula}
+                    disabled={busy || !form.title}
+                    style={{ marginBottom: '1rem', width: '100%', justifyContent: 'center' }}
+                  >
+                    {busy ? 'Buscando...' : 'Autocompletar con TMDb'}
+                  </button>
+                )}
+
                 <div className="form-grid">
                   <label className="setting">
                     Tipo
-                    <select
-                      aria-label="Tipo de contenido"
-                      value={form.type}
-                      onChange={(e) => update('type', e.target.value)}
-                    >
+                    <select aria-label="Tipo de contenido" value={form.type} onChange={(e) => update('type', e.target.value)}>
                       <option value="BOOK">Libro</option>
                       <option value="MOVIE">Película</option>
                       <option value="GAME">Juego</option>
@@ -236,23 +271,15 @@ export default function Editor({ onChanged }) {
                 </div>
                 <div className="form-grid">
                   {typeFields[form.type].map(([key, label, type]) =>
-                    field(
-                      key,
-                      label,
-                      type,
-                      type === 'number' ? { min: 1, max: 100000 } : { maxLength: 250 },
-                    ),
+                    field(key, label, type, type === 'number' ? { min: 1, max: 100000 } : { maxLength: 250 })
                   )}
                 </div>
                 <label className="spacing-option">
-                  <input
-                    type="checkbox"
-                    checked={form.recommended}
-                    onChange={(e) => update('recommended', e.target.checked)}
-                  />
+                  <input type="checkbox" checked={form.recommended} onChange={(e) => update('recommended', e.target.checked)} />
                   Destacar en Recomendados
                 </label>
               </section>
+
               <section className="editor-section">
                 <h2>02 · La reseña</h2>
                 {[
@@ -274,6 +301,7 @@ export default function Editor({ onChanged }) {
                   </label>
                 ))}
               </section>
+
               <div className="pros-cons">
                 {[
                   ['best', 'Lo mejor'],
@@ -283,31 +311,19 @@ export default function Editor({ onChanged }) {
                     <h2>{label}</h2>
                     {form[key].map((value, index) => (
                       <div className="list-input" key={index}>
-                        <label className="sr-only" htmlFor={`${key}-${index}`}>
-                          {label}, punto {index + 1}
-                        </label>
+                        <label className="sr-only" htmlFor={`${key}-${index}`}>{label}, punto {index + 1}</label>
                         <input
                           id={`${key}-${index}`}
                           required
                           maxLength={400}
                           value={value}
-                          onChange={(e) =>
-                            update(
-                              key,
-                              form[key].map((v, i) => (i === index ? e.target.value : v)),
-                            )
-                          }
+                          onChange={(e) => update(key, form[key].map((v, i) => (i === index ? e.target.value : v)))}
                         />
                         <button
                           type="button"
                           disabled={form[key].length === 1}
-                          aria-label={`Eliminar punto ${index + 1} de ${label.toLowerCase()}`}
-                          onClick={() =>
-                            update(
-                              key,
-                              form[key].filter((_, i) => i !== index),
-                            )
-                          }
+                          aria-label={`Eliminar punto ${index + 1}`}
+                          onClick={() => update(key, form[key].filter((_, i) => i !== index))}
                         >
                           <X size={17} />
                         </button>
@@ -320,13 +336,13 @@ export default function Editor({ onChanged }) {
                       disabled={form[key].length >= 20}
                       onClick={() => update(key, [...form[key], ''])}
                     >
-                      <Plus size={16} />
-                      Agregar punto
+                      <Plus size={16} /> Agregar punto
                     </button>
                   </section>
                 ))}
               </div>
             </div>
+
             <aside className="image-editor">
               <h2>La portada</h2>
               <div className="image-preview">
@@ -341,18 +357,9 @@ export default function Editor({ onChanged }) {
               </div>
               <label className="setting">
                 Seleccionar imagen
-                <input
-                  type="file"
-                  ref={imageInputRef}
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={selectImage}
-                  required={!id && !form.id}
-                />
+                <input type="file" ref={imageInputRef} accept="image/jpeg,image/png,image/webp" onChange={selectImage} required={!id && !form.id && !image} />
               </label>
-              <p className="muted">
-                JPG, JPEG, PNG o WebP · Máximo 5 MB. La imagen se sube al guardar. Al editar, dejá
-                este campo vacío para conservar la portada.
-              </p>
+              <p className="muted">JPG, JPEG, PNG o WebP · Máximo 5 MB.</p>
               {image && (
                 <button
                   type="button"
@@ -365,15 +372,12 @@ export default function Editor({ onChanged }) {
                   Descartar imagen nueva
                 </button>
               )}
-              <span className="status-badge">
-                {form.status === 'PUBLISHED' ? 'Publicada' : 'Borrador'}
-              </span>
+              <span className="status-badge">{form.status === 'PUBLISHED' ? 'Publicada' : 'Borrador'}</span>
             </aside>
           </div>
+          
           <div className="form-actions editor-actions">
-            <Link className="secondary" to="/admin">
-              Volver al panel
-            </Link>
+            <Link className="secondary" to="/admin">Volver al panel</Link>
             <button className="secondary" type="submit" value="DRAFT">
               {busy ? 'Guardando…' : 'Guardar borrador'}
             </button>
