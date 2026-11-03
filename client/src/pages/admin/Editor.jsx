@@ -176,24 +176,37 @@ export default function Editor({ onChanged }) {
     body.append('data', JSON.stringify(payload));
     if (image) body.append('image', image);
     try {
-      const saved = await api(id ? `/admin/content/${id}` : '/admin/content', {
-        admin: true,
-        method: id ? 'PUT' : 'POST',
-        body,
-      });
-      setDirty(false);
-      onChanged();
-      setForm({ ...empty, ...saved });
-      setImage(null);
-      if (imageInputRef.current) imageInputRef.current.value = '';
-      setMessage(saved.status === 'PUBLISHED' ? 'Reseña guardada y publicada.' : 'Borrador guardado.');
-      if (!id) navigate(`/admin/editar/${saved.id}`, { replace: true });
-    } catch (err) {
-      setError(err.message);
-      setFields(err.fields || {});
-    } finally {
-      setBusy(false);
+    const saved = await api(id ? `/admin/content/${id}` : '/admin/content', {
+      admin: true,
+      method: id ? 'PUT' : 'POST',
+      body,
+    });
+    
+    setDirty(false);
+    if (typeof onChanged === 'function') onChanged();
+    
+    if (saved && saved.id) {
+      if (!id) {
+        // Si es nueva: blanquear todo el formulario
+        setForm(empty);
+        setImage(null);
+        setPreview('');
+        if (imageInputRef.current) imageInputRef.current.value = '';
+        setMessage('¡Guardado exitoso! El formulario está listo para otra historia.');
+      } else {
+        // Si se está editando una existente: actualizar los datos
+        setForm({ ...empty, ...saved });
+        setImage(null);
+        if (imageInputRef.current) imageInputRef.current.value = '';
+        setMessage('¡Cambios guardados con éxito!');
+      }
     }
+  } catch (err) {
+    console.error("Error del servidor:", err);
+    setError("Fallo de conexión o base de datos. Los datos no se han borrado.");
+  } finally {
+    setBusy(false);
+  }
   };
 
   useEffect(() => {
